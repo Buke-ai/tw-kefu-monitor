@@ -1,0 +1,53 @@
+name: Truwave 客服健康检查
+
+on:
+  schedule:
+    # 每 10 分钟探测一次（GitHub 最小支持 5 分钟，但实际常有延迟）
+    - cron: "*/10 * * * *"
+  workflow_dispatch:        # 支持手动触发
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 探测 /api/stats
+        run: |
+          set -euo pipefail
+          URL="https://api.ilda.com.cn/api/stats"
+          START=$(date +%s%3N)
+          CODE=$(curl -sS --max-time 10 -o /tmp/out.json -w "%{http_code}" "$URL")
+          END=$(date +%s%3N)
+          MS=$((END - START))
+          echo "HTTP=$CODE  耗时=${MS}ms"
+          cat /tmp/out.json; echo
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::状态码异常：$CODE"
+            exit 1
+          fi
+          if ! grep -q '"chunks"' /tmp/out.json; then
+            echo "::error::返回内容不含 chunks，接口异常"
+            exit 1
+          fi
+
+          CHUNKS=$(python3 -c "import json;print(json.load(open('/tmp/out.json'))['chunks'])")
+          echo "知识库块数：$CHUNKS"
+          if [ "$CHUNKS" -lt 20 ]; then
+            echo "::error::知识库块数异常：$CHUNKS（应接近 28）"
+            exit 1
+          fi
+          if [ "$MS" -gt 5000 ]; then
+            echo "::error::响应过慢：${MS}ms，微信侧会超时"
+            exit 1
+          fi
+          echo "✅ 正常"
+
+      - name: 失败时推送微信（可选）
+        if: failure()
+        run: |
+          KEY="${{ secrets.SERVERCHAN_KEY }}"
+          if [ -z "$KEY" ]; then echo "未配置 Server酱 KEY，跳过"; exit 0; fi
+          curl -sS -m 10 "https://sctapi.ftqq.com/${KEY}.send" \
+            --data-urlencode "title=客服系统异常" \
+            --data-urlencode "desp=探测 https://api.ilda.com.cn/api/stats 失败，请检查服务器"

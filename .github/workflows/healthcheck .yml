@@ -14,7 +14,7 @@ jobs:
       - name: 探测 /api/stats
         run: |
           set -euo pipefail
-          URL="https://api.ilda.com.cn/api/stats"
+          URL="https://api.ilda.com.cn/api/stats-typo"
           START=$(date +%s%3N)
           CODE=$(curl -sS --max-time 10 -o /tmp/out.json -w "%{http_code}" "$URL")
           END=$(date +%s%3N)
